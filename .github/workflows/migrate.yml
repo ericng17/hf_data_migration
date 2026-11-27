@@ -2,10 +2,18 @@ name: Hugging Face Dataset Migration
 
 on:
   workflow_dispatch:
+    inputs:
+      dataset:
+        description: "Specific dataset (empty = all)"
+        required: false
+        default: ""
 
 concurrency:
   group: hf-dataset-migration
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   migrate:
@@ -15,6 +23,8 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       PYTHONUNBUFFERED: "1"
+      MAX_RUNTIME: "19800"
+      DATASET: ${{ inputs.dataset }}
 
     steps:
       - name: Checkout repository
@@ -26,7 +36,12 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -U huggingface_hub
 
       - name: Migrate datasets
-        run: python migrate_to_bucket.py
+        run: |
+          if [ -n "$DATASET" ]; then
+            python migrate_to_bucket.py --dataset "$DATASET"
+          else
+            python migrate_to_bucket.py
+          fi
