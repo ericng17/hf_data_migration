@@ -1,0 +1,88 @@
+name: Auto Resume Migration
+
+on:
+  workflow_run:
+    workflows:
+      - "Hugging Face Dataset Migration"
+    types:
+      - completed
+    branches:
+      - main
+
+  schedule:
+    - cron: "17,47 * * * *"
+
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: migration-watchdog
+  cancel-in-progress: false
+
+jobs:
+  auto-resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      MAX_ATTEMPTS: "5"
+
+    steps:
+      - name: Check migration status
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RUN=$(gh api \
+            "repos/$GH_REPO/actions/workflows/migrate.yml/runs?branch=main&per_page=1" \
+            --jq '.workflow_runs[0] // empty')
+
+          if [ -z "$RUN" ]; then
+            echo "No migration run found."
+            exit 0
+          fi
+
+          RUN_ID=$(jq -r '.id' <<< "$RUN")
+          STATUS=$(jq -r '.status' <<< "$RUN")
+          CONCLUSION=$(jq -r '.conclusion' <<< "$RUN")
+          ATTEMPT=$(jq -r '.run_attempt' <<< "$RUN")
+
+          echo "Run ID: $RUN_ID"
+          echo "Status: $STATUS"
+          echo "Conclusion: $CONCLUSION"
+          echo "Attempt: $ATTEMPT/$MAX_ATTEMPTS"
+
+          if [ "$STATUS" != "completed" ]; then
+            echo "Migration is still active."
+            exit 0
+          fi
+
+          case "$CONCLUSION" in
+            success)
+              echo "Migration completed successfully."
+              exit 0
+              ;;
+
+            failure|timed_out)
+              if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+                echo "::error::Maximum retry attempts reached."
+                exit 1
+              fi
+
+              echo "Restarting migration..."
+              gh run rerun "$RUN_ID"
+              ;;
+
+            cancelled)
+              echo "Migration cancelled. No automatic retry."
+              ;;
+
+            *)
+              echo "No retry required: $CONCLUSION"
+              ;;
+          esac
