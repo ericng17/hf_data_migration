@@ -1,0 +1,32 @@
+name: Hugging Face Dataset Migration
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: hf-dataset-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Migrate datasets
+        run: python migrate_to_bucket.py
